@@ -1,3 +1,4 @@
+// internal/config/logger.go
 package config
 
 import (
@@ -9,22 +10,12 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const logPrefix = "PHP Resolver "
+const logPrefix = "phpResolver"
 
 // NewLogger creates a configured charmbracelet/log.Logger from the config.
-// Validates config inputs.
+// Assumes config has already been validated by config.Load().
 // Returns LoggerHandle with Closer to prevent file descriptor leaks.
 func NewLogger(cfg Config) (*LoggerHandle, error) {
-	// Validate inputs using shared helpers (single source of truth)
-	if !IsValidLogLevel(cfg.Log.Level) {
-		return nil, fmt.Errorf("invalid log.level %q (must be one of: %v): %w",
-			cfg.Log.Level, ValidLogLevels(), ErrInvalidLogLevel)
-	}
-
-	if !IsValidLogFormat(cfg.Log.Format) {
-		return nil, fmt.Errorf("invalid log.format %q (must be one of: %v): %w",
-			cfg.Log.Format, ValidLogFormats(), ErrInvalidLogFormat)
-	}
 
 	// Map typed LogLevel to charm log.Level using constants
 	var level log.Level
@@ -38,7 +29,7 @@ func NewLogger(cfg Config) (*LoggerHandle, error) {
 	case LogLevelError:
 		level = log.ErrorLevel
 	default:
-		// Unreachable due to validation above
+		// Unreachable due to validation in config.Load()
 		panic("unreachable: invalid log level")
 	}
 
@@ -52,7 +43,7 @@ func NewLogger(cfg Config) (*LoggerHandle, error) {
 	case LogFormatLogfmt:
 		formatter = log.LogfmtFormatter
 	default:
-		// Unreachable due to validation above
+		// Unreachable due to validation in config.Load()
 		panic("unreachable: invalid log format")
 	}
 
@@ -84,13 +75,13 @@ func NewLogger(cfg Config) (*LoggerHandle, error) {
 		writer = io.MultiWriter(os.Stderr, file)
 	}
 
-	// Build logger
+	// Build logger with correct Options fields
 	logger := log.NewWithOptions(writer, log.Options{
 		Level:           level,
+		Prefix:          logPrefix,
 		ReportTimestamp: true,
 		ReportCaller:    cfg.Log.ShowSource,
 		Formatter:       formatter,
-		Prefix:          logPrefix,
 	})
 
 	// Return handle with appropriate closer (no-op if no file)
