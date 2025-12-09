@@ -84,7 +84,7 @@ func Load() (Config, error) {
 }
 
 func validate(cfg Config) error {
-	if !IsValidLogLevel(string(cfg.Log.Level)) {
+	if !IsValidLogLevel(cfg.Log.Level) {
 		return fmt.Errorf("invalid log.level %q (must be one of: %v)",
 			cfg.Log.Level, ValidLogLevels())
 	}

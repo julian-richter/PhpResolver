@@ -10,7 +10,7 @@ import (
 )
 
 // NewLogger creates a configured charmbracelet/log.Logger from the config.
-// Assumes config has already been validated via Load().
+// Validates config inputs.
 // Returns LoggerHandle with Closer to prevent file descriptor leaks.
 func NewLogger(cfg Config) (*LoggerHandle, error) {
 	// Validate inputs using shared helpers (single source of truth)

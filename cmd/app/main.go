@@ -1,4 +1,3 @@
-// cmd/app/main.go
 package main
 
 import (
@@ -31,14 +30,12 @@ func main() {
 		if handle.Closer != nil {
 			if err := handle.Closer(); err != nil {
 				// Log but don't fail on close error
-				log.Error("failed to close log file", "err", err)
+				handle.Logger.Error("failed to close log file", "err", err)
 			}
 		}
 	}()
 
-	log.SetDefault(handle.Logger)
-
-	// Inject logger into app
+	// Inject logger into app - consistent explicit passing
 	if err := run(handle.Logger, cfg); err != nil {
 		handle.Logger.Fatal("application error", "err", err)
 	}
