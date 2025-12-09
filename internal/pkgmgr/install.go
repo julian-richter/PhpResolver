@@ -39,7 +39,7 @@ func RunInstall(ctx context.Context, logger *log.Logger, cfg config.Config) erro
 	}
 
 	// Resolve packages from custom repositories and Packagist
-	packages, err := ResolvePackagesWithRepos(composer.Require, composer.Repositories, logger)
+	packages, err := ResolvePackagesWithRepos(ctx, composer.Require, composer.Repositories, logger)
 	if err != nil {
 		return fmt.Errorf("resolve packages: %w", err)
 	}
@@ -54,7 +54,7 @@ func RunInstall(ctx context.Context, logger *log.Logger, cfg config.Config) erro
 		return fmt.Errorf("extract packages: %w", err)
 	}
 
-	if err := GenerateAutoloader(composer.Autoload, vendorDir, logger); err != nil {
+	if err := GenerateAutoloader(ctx, composer.Autoload, vendorDir, logger); err != nil {
 		return fmt.Errorf("generate autoloader: %w", err)
 	}
 

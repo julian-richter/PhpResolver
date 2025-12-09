@@ -3,6 +3,7 @@ module github.com/julian-richter/PhpResolver
 go 1.25
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/charmbracelet/log v0.4.2
 	gopkg.in/yaml.v3 v3.0.1
 )

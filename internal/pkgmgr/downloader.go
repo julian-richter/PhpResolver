@@ -96,7 +96,7 @@ func downloadPackage(ctx context.Context, pkg Package, cacheDir string, logger *
 	}
 
 	// Create temp file in same directory as cache file
-	tempFile, err := os.CreateTemp(filepath.Dir(cachePath), fmt.Sprintf("%s.tmp", pkg.Name))
+	tempFile, err := os.CreateTemp(filepath.Dir(cachePath), fmt.Sprintf("%s.tmp", filepath.Base(pkg.Name)))
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

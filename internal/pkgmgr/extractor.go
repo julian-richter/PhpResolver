@@ -43,8 +43,14 @@ func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string
 	// Build vendor path: vendor/vendor-name/package-name/
 	vendorPath := filepath.Join(vendorDir, pkg.Name)
 
+	// Ensure parent directory exists before creating temp directory
+	parentDir := filepath.Dir(vendorPath)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		return fmt.Errorf("create parent dir %s: %w", parentDir, err)
+	}
+
 	// Create temporary directory for extraction
-	tempDir, err := os.MkdirTemp(filepath.Dir(vendorPath), filepath.Base(vendorPath)+".tmp")
+	tempDir, err := os.MkdirTemp(parentDir, filepath.Base(vendorPath)+".tmp")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}

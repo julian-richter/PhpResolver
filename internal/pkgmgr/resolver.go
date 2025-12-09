@@ -1,14 +1,16 @@
 package pkgmgr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/log"
 )
 
@@ -18,11 +20,11 @@ var (
 	bowerAssetRE = regexp.MustCompile(`^bower-asset/`)
 )
 
-func ResolvePackages(require map[string]string, logger *log.Logger) ([]Package, error) {
-	return ResolvePackagesWithRepos(require, nil, logger)
+func ResolvePackages(ctx context.Context, require map[string]string, logger *log.Logger) ([]Package, error) {
+	return ResolvePackagesWithRepos(ctx, require, nil, logger)
 }
 
-func ResolvePackagesWithRepos(require map[string]string, repositories []Repository, logger *log.Logger) ([]Package, error) {
+func ResolvePackagesWithRepos(ctx context.Context, require map[string]string, repositories []Repository, logger *log.Logger) ([]Package, error) {
 	var packages []Package
 	var errors []string
 
@@ -33,7 +35,7 @@ func ResolvePackagesWithRepos(require map[string]string, repositories []Reposito
 			continue
 		}
 
-		pkg, err := resolvePackage(name, constraint, repositories, logger)
+		pkg, err := resolvePackage(ctx, name, constraint, repositories, logger)
 		if err != nil {
 			logger.Warn("Failed to resolve package (skipping)", "package", name, "error", err.Error())
 			errors = append(errors, fmt.Sprintf("%s: %v", name, err))
@@ -56,7 +58,7 @@ func ResolvePackagesWithRepos(require map[string]string, repositories []Reposito
 	return packages, nil
 }
 
-func resolvePackage(name, constraint string, repositories []Repository, logger *log.Logger) (Package, error) {
+func resolvePackage(ctx context.Context, name, constraint string, repositories []Repository, logger *log.Logger) (Package, error) {
 	// Check if this is an asset package (npm-asset/ or bower-asset/)
 	isAsset := isAssetPackage(name)
 
@@ -67,7 +69,7 @@ func resolvePackage(name, constraint string, repositories []Repository, logger *
 		for _, repo := range repositories {
 			if repo.Type == "composer" && strings.Contains(repo.URL, "asset-packagist.org") {
 				logger.Debug("Trying asset-packagist", "package", name, "url", repo.URL)
-				pkg, err := queryComposerRepository(repo.URL, name, constraint, logger)
+				pkg, err := queryComposerRepository(ctx, repo.URL, name, constraint, logger)
 				if err == nil {
 					return pkg, nil
 				}
@@ -82,7 +84,7 @@ func resolvePackage(name, constraint string, repositories []Repository, logger *
 	for _, repo := range repositories {
 		if repo.Type == "composer" && !strings.Contains(repo.URL, "asset-packagist.org") {
 			logger.Debug("Trying custom composer repository", "package", name, "repo", repo.URL)
-			pkg, err := queryComposerRepository(repo.URL, name, constraint, logger)
+			pkg, err := queryComposerRepository(ctx, repo.URL, name, constraint, logger)
 			if err == nil {
 				return pkg, nil
 			}
@@ -96,12 +98,22 @@ func resolvePackage(name, constraint string, repositories []Repository, logger *
 
 	// Fallback to Packagist
 	logger.Debug("Trying packagist.org", "package", name)
-	return queryComposerRepository("https://packagist.org", name, constraint, logger)
+	return queryComposerRepository(ctx, "https://packagist.org", name, constraint, logger)
 }
 
-func queryComposerRepository(baseURL, name, constraint string, logger *log.Logger) (Package, error) {
+func queryComposerRepository(ctx context.Context, baseURL, name, constraint string, logger *log.Logger) (Package, error) {
 	url := fmt.Sprintf("%s/packages/%s.json", baseURL, name)
-	resp, err := http.Get(url)
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return Package{}, fmt.Errorf("create request for %s: %w", name, err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return Package{}, fmt.Errorf("repository lookup %s: %w", name, err)
 	}
@@ -159,60 +171,40 @@ func isAssetPackage(name string) bool {
 	return npmAssetRE.MatchString(name) || bowerAssetRE.MatchString(name)
 }
 
-// compareVersions compares two version strings and returns:
+// compareVersions compares two version strings using proper semver rules and returns:
 // -1 if v1 < v2
 //
 //	0 if v1 == v2
 //	1 if v1 > v2
+//
+// This function properly handles pre-release suffixes, build metadata, and follows
+// semantic versioning rules as defined in https://semver.org/
 func compareVersions(v1, v2 string) int {
-	// Remove 'v' prefix if present
-	v1 = strings.TrimPrefix(v1, "v")
-	v2 = strings.TrimPrefix(v2, "v")
+	// Parse versions using semver library
+	ver1, err1 := semver.NewVersion(v1)
+	ver2, err2 := semver.NewVersion(v2)
 
-	// Split versions into parts
-	parts1 := strings.Split(v1, ".")
-	parts2 := strings.Split(v2, ".")
-
-	// Compare each part numerically
-	minLen := len(parts1)
-	if len(parts2) < minLen {
-		minLen = len(parts2)
+	// If both versions parse successfully, compare them properly
+	if err1 == nil && err2 == nil {
+		return ver1.Compare(ver2)
 	}
 
-	for i := 0; i < minLen; i++ {
-		// Extract numeric part (ignore pre-release suffixes like -alpha, -beta)
-		num1Str := strings.Split(parts1[i], "-")[0]
-		num2Str := strings.Split(parts2[i], "-")[0]
-
-		num1, err1 := strconv.Atoi(num1Str)
-		num2, err2 := strconv.Atoi(num2Str)
-
-		// If both are numeric, compare numerically
-		if err1 == nil && err2 == nil {
-			if num1 != num2 {
-				if num1 > num2 {
-					return 1
-				}
-				return -1
-			}
-		} else {
-			// Fallback to string comparison for non-numeric parts
-			if num1Str != num2Str {
-				if num1Str > num2Str {
-					return 1
-				}
-				return -1
-			}
-		}
-	}
-
-	// If all compared parts are equal, longer version is considered greater
-	if len(parts1) != len(parts2) {
-		if len(parts1) > len(parts2) {
+	// If one or both versions fail to parse, fall back to string comparison
+	// This handles edge cases like non-standard version strings
+	if err1 != nil && err2 != nil {
+		// Both failed to parse, compare as strings
+		if v1 < v2 {
+			return -1
+		} else if v1 > v2 {
 			return 1
 		}
-		return -1
+		return 0
 	}
 
-	return 0
+	// If only one failed to parse, consider the parsable one as greater
+	// This is a reasonable fallback for mixed version formats
+	if err1 != nil {
+		return -1 // v1 failed to parse, consider v2 greater
+	}
+	return 1 // v2 failed to parse, consider v1 greater
 }

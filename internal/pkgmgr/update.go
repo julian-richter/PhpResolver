@@ -12,9 +12,11 @@ import (
 
 // RunUpdate performs dependency resolution to find newer compatible versions
 // and updates the installation accordingly. Currently implements basic update
-// semantics without lockfile management (TODO: add composer.lock support).
+// semantics without lockfile management. Without lockfile support, this is
+// functionally identical to RunInstall - both resolve to latest compatible versions.
+// TODO: Add composer.lock reading/writing to differentiate update from install.
 func RunUpdate(ctx context.Context, logger *log.Logger, cfg config.Config) error {
-	logger.Info("Starting dependency update - resolving to latest compatible versions")
+	logger.Info("Starting dependency update (MVP - no lockfile support, resolves latest like install)")
 
 	// Find and parse composer.json
 	composerPath, err := FindComposerJSON(".")
@@ -49,7 +51,7 @@ func RunUpdate(ctx context.Context, logger *log.Logger, cfg config.Config) error
 
 	// Re-resolve dependencies - for update, we want latest compatible versions
 	// (In future, this will ignore lockfile constraints and resolve fresh)
-	packages, err := ResolvePackagesWithRepos(composer.Require, composer.Repositories, logger)
+	packages, err := ResolvePackagesWithRepos(ctx, composer.Require, composer.Repositories, logger)
 	if err != nil {
 		return fmt.Errorf("resolve packages: %w", err)
 	}
@@ -67,7 +69,7 @@ func RunUpdate(ctx context.Context, logger *log.Logger, cfg config.Config) error
 		return fmt.Errorf("extract packages: %w", err)
 	}
 
-	if err := GenerateAutoloader(composer.Autoload, vendorDir, logger); err != nil {
+	if err := GenerateAutoloader(ctx, composer.Autoload, vendorDir, logger); err != nil {
 		return fmt.Errorf("generate autoloader: %w", err)
 	}
 

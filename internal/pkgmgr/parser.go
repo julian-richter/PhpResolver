@@ -1,6 +1,7 @@
 package pkgmgr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,7 +39,7 @@ func ParseComposerJSON(path string) (ComposerJSON, error) {
 	return composer, nil
 }
 
-func GenerateAutoloader(autoload Autoload, vendorDir string, logger *log.Logger) error {
+func GenerateAutoloader(ctx context.Context, autoload Autoload, vendorDir string, logger *log.Logger) error {
 	logger.Info("Generating autoloader (MVP)", "psr4_count", len(autoload.PSR4), "psr0_count", len(autoload.PSR0), "classmap_count", len(autoload.Classmap), "files_count", len(autoload.Files))
 
 	// MVP: Create basic autoloader stub with configuration info
@@ -85,6 +86,13 @@ func GenerateAutoloader(autoload Autoload, vendorDir string, logger *log.Logger)
 // TODO: Implement actual PSR-4, PSR-0, classmap, and files autoloading
 echo "phpResolver autoloader loaded (MVP - configuration detected but not implemented)\n";
 `)
+
+	// Check for cancellation before file I/O
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 
 	data := []byte(phpContent.String())
 	return os.WriteFile(autoloadPath, data, 0o644)
