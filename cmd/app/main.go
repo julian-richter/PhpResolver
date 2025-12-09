@@ -4,33 +4,41 @@ package main
 import (
 	"os"
 
-	charmLog "github.com/charmbracelet/log"
+	"github.com/charmbracelet/log"
 	"github.com/julian-richter/PhpResolver/internal/config"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		// fall back to a minimal stderr logger
-		fallback := charmLog.NewWithOptions(os.Stderr, charmLog.Options{
-			Level: charmLog.ErrorLevel,
+		// Fallback logger for config errors
+		fallback := log.NewWithOptions(os.Stderr, log.Options{
+			Level: log.ErrorLevel,
 		})
 		fallback.Fatal("failed to load config", "err", err)
 	}
 
-	logger, err := config.NewLogger(cfg)
+	handle, err := config.NewLogger(cfg)
 	if err != nil {
-		// cannot continue if logger cannot be built
-		charmLog.New(os.Stderr).Fatal("failed to initialize logger", "err", err)
+		log.New(os.Stderr).Fatal("failed to initialize logger", "err", err)
 	}
+	defer func() {
+		if handle.Closer != nil {
+			if err := handle.Closer(); err != nil {
+				// Log but don't fail on close error
+				log.Error("failed to close log file", "err", err)
+			}
+		}
+	}()
 
-	charmLog.SetDefault(logger)
+	log.SetDefault(handle.Logger)
 
-	if err := run(logger, cfg); err != nil {
-		logger.Fatal("application error", "err", err)
+	// Inject logger into app
+	if err := run(handle.Logger, cfg); err != nil {
+		handle.Logger.Fatal("application error", "err", err)
 	}
 }
 
-func run(logger *charmLog.Logger, cfg config.Config) error {
+func run(logger *log.Logger, _ config.Config) error { // _ ignores unused cfg param
 	return nil
 }

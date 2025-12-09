@@ -1,4 +1,3 @@
-// internal/config/load.go
 package config
 
 import (
@@ -18,7 +17,7 @@ const (
 func defaultConfig() Config {
 	return Config{
 		Log: LogConfig{
-			Level:       "info",
+			Level:       LogLevelInfo,
 			Format:      LogFormatText,
 			ShowSource:  true,
 			FileEnabled: false,
@@ -36,6 +35,9 @@ func configPath() (string, error) {
 }
 
 func ensureConfigFile(path string) (Config, error) {
+	// IMPORTANT: Uses defaultConfig() as base, then yaml.Unmarshal merges
+	// file values into it. This preserves defaults for any absent YAML fields.
+	// Logic intentionally mixes config creation + loading for simplicity;
 	cfg := defaultConfig()
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -58,6 +60,7 @@ func ensureConfigFile(path string) (Config, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("read config: %w", err)
 	}
+	// yaml.Unmarshal merges into pre-populated cfg, preserving defaults for missing keys
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("unmarshal config: %w", err)
 	}
@@ -81,16 +84,14 @@ func Load() (Config, error) {
 }
 
 func validate(cfg Config) error {
-	switch cfg.Log.Level {
-	case "debug", "info", "warn", "error":
-	default:
-		return fmt.Errorf("invalid log.level %q", cfg.Log.Level)
+	if !IsValidLogLevel(string(cfg.Log.Level)) {
+		return fmt.Errorf("invalid log.level %q (must be one of: %v)",
+			cfg.Log.Level, ValidLogLevels())
 	}
 
-	switch cfg.Log.Format {
-	case LogFormatText, LogFormatJSON, LogFormatLogfmt:
-	default:
-		return fmt.Errorf("invalid log.format %q", cfg.Log.Format)
+	if !IsValidLogFormat(cfg.Log.Format) {
+		return fmt.Errorf("invalid log.format %q (must be one of: %v)",
+			cfg.Log.Format, ValidLogFormats())
 	}
 
 	return nil

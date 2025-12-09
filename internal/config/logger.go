@@ -1,4 +1,3 @@
-// internal/config/logger.go
 package config
 
 import (
@@ -7,38 +6,59 @@ import (
 	"os"
 	"path/filepath"
 
-	charmLog "github.com/charmbracelet/log"
+	"github.com/charmbracelet/log"
 )
 
-func NewLogger(cfg Config) (*charmLog.Logger, error) {
-	var level charmLog.Level
-	switch cfg.Log.Level {
-	case "debug":
-		level = charmLog.DebugLevel
-	case "info":
-		level = charmLog.InfoLevel
-	case "warn":
-		level = charmLog.WarnLevel
-	case "error":
-		level = charmLog.ErrorLevel
-	default:
-		return nil, fmt.Errorf("unsupported log level %q", cfg.Log.Level)
+// NewLogger creates a configured charmbracelet/log.Logger from the config.
+// Assumes config has already been validated via Load().
+// Returns LoggerHandle with Closer to prevent file descriptor leaks.
+func NewLogger(cfg Config) (*LoggerHandle, error) {
+	// Validate inputs using shared helpers (single source of truth)
+	if !IsValidLogLevel(string(cfg.Log.Level)) {
+		return nil, fmt.Errorf("invalid log.level %q (must be one of: %v): %w",
+			cfg.Log.Level, ValidLogLevels(), ErrInvalidLogLevel)
 	}
 
-	var formatter charmLog.Formatter
+	if !IsValidLogFormat(cfg.Log.Format) {
+		return nil, fmt.Errorf("invalid log.format %q (must be one of: %v): %w",
+			cfg.Log.Format, ValidLogFormats(), ErrInvalidLogFormat)
+	}
+
+	// Map typed LogLevel to charm log.Level using constants
+	var level log.Level
+	switch cfg.Log.Level {
+	case LogLevelDebug:
+		level = log.DebugLevel
+	case LogLevelInfo:
+		level = log.InfoLevel
+	case LogLevelWarn:
+		level = log.WarnLevel
+	case LogLevelError:
+		level = log.ErrorLevel
+	default:
+		// Unreachable due to validation above
+		panic("unreachable: invalid log level")
+	}
+
+	// Map typed LogFormat to charm formatter using constants
+	var formatter log.Formatter
 	switch cfg.Log.Format {
 	case LogFormatText:
-		formatter = charmLog.TextFormatter
+		formatter = log.TextFormatter
 	case LogFormatJSON:
-		formatter = charmLog.JSONFormatter
+		formatter = log.JSONFormatter
 	case LogFormatLogfmt:
-		formatter = charmLog.LogfmtFormatter
+		formatter = log.LogfmtFormatter
 	default:
-		return nil, fmt.Errorf("unsupported log format %q", cfg.Log.Format)
+		// Unreachable due to validation above
+		panic("unreachable: invalid log format")
 	}
 
-	var writer io.Writer = os.Stderr
+	// Default to stderr (no close needed)
+	var file *os.File
+	writer := io.Writer(os.Stderr)
 
+	// Optional file output with auto-default path
 	if cfg.Log.FileEnabled {
 		path := cfg.Log.FilePath
 		if path == "" {
@@ -48,17 +68,22 @@ func NewLogger(cfg Config) (*charmLog.Logger, error) {
 			}
 			path = filepath.Join(home, ".phpResolver", "logs", "app.log")
 		}
+
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, fmt.Errorf("create log dir: %w", err)
+			return nil, fmt.Errorf("create log dir %q: %w", filepath.Dir(path), err)
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+
+		var err error
+		file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			return nil, fmt.Errorf("open log file: %w", err)
+			return nil, fmt.Errorf("open log file %q: %w", path, err)
 		}
-		writer = io.MultiWriter(os.Stderr, f)
+
+		writer = io.MultiWriter(os.Stderr, file)
 	}
 
-	logger := charmLog.NewWithOptions(writer, charmLog.Options{
+	// Build logger
+	logger := log.NewWithOptions(writer, log.Options{
 		Level:           level,
 		ReportTimestamp: true,
 		ReportCaller:    cfg.Log.ShowSource,
@@ -66,5 +91,16 @@ func NewLogger(cfg Config) (*charmLog.Logger, error) {
 		Prefix:          "phpResolver",
 	})
 
-	return logger, nil
+	// Return handle with appropriate closer (no-op if no file)
+	closer := func() error {
+		if file != nil {
+			return file.Close()
+		}
+		return nil
+	}
+
+	return &LoggerHandle{
+		Logger: logger,
+		Closer: closer,
+	}, nil
 }
