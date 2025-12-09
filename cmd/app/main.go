@@ -1,10 +1,17 @@
+// cmd/app/main.go - Manual CLI without external deps
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/charmbracelet/log"
 	"github.com/julian-richter/PhpResolver/internal/config"
+	"github.com/julian-richter/PhpResolver/internal/pkgmgr"
 )
 
 func createFallbackLogger() *log.Logger {
@@ -16,7 +23,6 @@ func createFallbackLogger() *log.Logger {
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		// Fallback logger for config errors
 		fallback := createFallbackLogger()
 		fallback.Fatal("failed to load config", "err", err)
 	}
@@ -29,19 +35,49 @@ func main() {
 	defer func() {
 		if handle.Closer != nil {
 			if err := handle.Closer(); err != nil {
-				// Log but don't fail on close error
 				handle.Logger.Error("failed to close log file", "err", err)
 			}
 		}
 	}()
 
-	// Inject logger into app - consistent explicit passing
-	if err := run(handle.Logger, cfg); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	if err := runCLI(ctx, os.Args, handle.Logger, cfg); err != nil {
 		handle.Logger.Fatal("application error", "err", err)
 	}
 }
 
-func run(logger *log.Logger, _ config.Config) error {
-	logger.Infof("starting application")
-	return nil
+func runCLI(ctx context.Context, args []string, logger *log.Logger, cfg config.Config) error {
+	if len(args) < 2 {
+		printUsage(logger)
+		return fmt.Errorf("no command specified")
+	}
+
+	cmd := strings.ToLower(args[1])
+	switch cmd {
+	case "install":
+		return pkgmgr.RunInstall(ctx, logger, cfg)
+	case "update":
+		return pkgmgr.RunUpdate(ctx, logger, cfg)
+	case "dump-autoload":
+		return pkgmgr.RunDumpAutoload(ctx, logger, cfg)
+	case "help", "-h", "--help":
+		printUsage(logger)
+		return nil
+	default:
+		printUsage(logger)
+		return fmt.Errorf("unknown command: %s", cmd)
+	}
+}
+
+// printUsage prints help text to stdout intentionally bypassing the logger
+// to avoid timestamp/JSON formatting that would make the output less readable
+func printUsage(logger *log.Logger) {
+	fmt.Println(`phpResolver - Drop-in Composer replacement
+
+Usage:
+  phpResolver install        Install project dependencies
+  phpResolver update         Update dependencies to their newest versions  
+  phpResolver dump-autoload  Dump the autoloader`)
 }

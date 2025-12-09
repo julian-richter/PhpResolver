@@ -1,3 +1,4 @@
+// internal/config/types.go
 package config
 
 import (
@@ -31,8 +32,13 @@ type LogConfig struct {
 	FilePath    string    `yaml:"file_path"`
 }
 
+type PkgmgrConfig struct {
+	MaxConcurrentDownloads int `yaml:"max_concurrent_downloads"` // Default: 5
+}
+
 type Config struct {
-	Log LogConfig `yaml:"log"`
+	Log    LogConfig    `yaml:"log"`
+	Pkgmgr PkgmgrConfig `yaml:"pkgmgr"`
 }
 
 type LoggerHandle struct {
@@ -41,10 +47,12 @@ type LoggerHandle struct {
 }
 
 var (
-	ErrInvalidLogLevel  = errors.New("invalid log level")
-	ErrInvalidLogFormat = errors.New("invalid log format")
+	ErrInvalidLogLevel               = errors.New("invalid log level")
+	ErrInvalidLogFormat              = errors.New("invalid log format")
+	ErrInvalidMaxConcurrentDownloads = errors.New("invalid max concurrent downloads")
 )
 
+// Validation helpers - single source of truth
 func ValidLogLevels() []LogLevel {
 	return []LogLevel{LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError}
 }
@@ -69,4 +77,8 @@ func IsValidLogFormat(format LogFormat) bool {
 	default:
 		return false
 	}
+}
+
+func ValidMaxConcurrentDownloads(n int) bool {
+	return n >= 1 && n <= 50 // Min 1, max 50 to prevent abuse
 }

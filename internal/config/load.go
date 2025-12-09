@@ -23,6 +23,9 @@ func defaultConfig() Config {
 			FileEnabled: false,
 			FilePath:    "",
 		},
+		Pkgmgr: PkgmgrConfig{
+			MaxConcurrentDownloads: 5, // Default: 5
+		},
 	}
 }
 
@@ -85,13 +88,18 @@ func Load() (Config, error) {
 
 func validate(cfg Config) error {
 	if !IsValidLogLevel(cfg.Log.Level) {
-		return fmt.Errorf("invalid log.level %q (must be one of: %v)",
-			cfg.Log.Level, ValidLogLevels())
+		return fmt.Errorf("invalid log.level %q (must be one of: %v): %w",
+			cfg.Log.Level, ValidLogLevels(), ErrInvalidLogLevel)
 	}
 
 	if !IsValidLogFormat(cfg.Log.Format) {
-		return fmt.Errorf("invalid log.format %q (must be one of: %v)",
-			cfg.Log.Format, ValidLogFormats())
+		return fmt.Errorf("invalid log.format %q (must be one of: %v): %w",
+			cfg.Log.Format, ValidLogFormats(), ErrInvalidLogFormat)
+	}
+
+	if !ValidMaxConcurrentDownloads(cfg.Pkgmgr.MaxConcurrentDownloads) {
+		return fmt.Errorf("invalid pkgmgr.max_concurrent_downloads %d (must be 1-50): %w",
+			cfg.Pkgmgr.MaxConcurrentDownloads, ErrInvalidMaxConcurrentDownloads)
 	}
 
 	return nil
