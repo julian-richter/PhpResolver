@@ -29,7 +29,11 @@ func RunInstall(ctx context.Context, logger *log.Logger, cfg config.Config) erro
 	}
 
 	// Create cache dir
-	cacheDir := filepath.Join(os.Getenv("HOME"), ".phpResolver", "cache")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get user home dir: %w", err)
+	}
+	cacheDir := filepath.Join(home, ".phpResolver", "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
@@ -46,7 +50,7 @@ func RunInstall(ctx context.Context, logger *log.Logger, cfg config.Config) erro
 	}
 
 	// Extract packages from cache to vendor/
-	if err := ExtractPackages(packages, cacheDir, vendorDir, logger); err != nil {
+	if err := ExtractPackages(ctx, packages, cacheDir, vendorDir, logger); err != nil {
 		return fmt.Errorf("extract packages: %w", err)
 	}
 

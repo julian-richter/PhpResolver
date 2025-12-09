@@ -31,7 +31,7 @@ type ComposerJSON struct {
 	Description      string            `json:"description"`
 	Keywords         []string          `json:"keywords"`
 	Type             string            `json:"type"`
-	License          string            `json:"license"`
+	License          StringOrArray     `json:"license"`
 	Require          map[string]string `json:"require"`
 	RequireDev       map[string]string `json:"require-dev,omitempty"`
 	Autoload         Autoload          `json:"autoload,omitempty"`

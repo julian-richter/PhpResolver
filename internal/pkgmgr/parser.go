@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/log"
 )
@@ -38,15 +39,53 @@ func ParseComposerJSON(path string) (ComposerJSON, error) {
 }
 
 func GenerateAutoloader(autoload Autoload, vendorDir string, logger *log.Logger) error {
-	// MVP: Create basic autoloader stub
+	logger.Info("Generating autoloader (MVP)", "psr4_count", len(autoload.PSR4), "psr0_count", len(autoload.PSR0), "classmap_count", len(autoload.Classmap), "files_count", len(autoload.Files))
+
+	// MVP: Create basic autoloader stub with configuration info
 	autoloadPath := filepath.Join(vendorDir, "autoload.php")
 
-	// TODO: Real PSR-4 + files autoloading
-	data := []byte(`<?php
+	// Generate PHP content that shows what we detected
+	var phpContent strings.Builder
+	phpContent.WriteString(`<?php
 // phpResolver autoloader stub - MVP
-// TODO: Implement PSR-4, PSR-0, classmap, files autoloading
-echo "phpResolver autoloader loaded\\n";
+// This is a minimal implementation that shows detected autoload configuration
+//
+// DETECTED CONFIGURATION:
+//`)
+
+	if len(autoload.PSR4) > 0 {
+		phpContent.WriteString(fmt.Sprintf("// PSR-4 mappings: %d\n", len(autoload.PSR4)))
+		for namespace, paths := range autoload.PSR4 {
+			phpContent.WriteString(fmt.Sprintf("//   %s => %v\n", namespace, paths))
+		}
+	}
+
+	if len(autoload.PSR0) > 0 {
+		phpContent.WriteString(fmt.Sprintf("// PSR-0 mappings: %d\n", len(autoload.PSR0)))
+		for namespace, paths := range autoload.PSR0 {
+			phpContent.WriteString(fmt.Sprintf("//   %s => %v\n", namespace, paths))
+		}
+	}
+
+	if len(autoload.Classmap) > 0 {
+		phpContent.WriteString(fmt.Sprintf("// Classmap entries: %d\n", len(autoload.Classmap)))
+		for _, path := range autoload.Classmap {
+			phpContent.WriteString(fmt.Sprintf("//   %s\n", path))
+		}
+	}
+
+	if len(autoload.Files) > 0 {
+		phpContent.WriteString(fmt.Sprintf("// Files to include: %d\n", len(autoload.Files)))
+		for _, file := range autoload.Files {
+			phpContent.WriteString(fmt.Sprintf("//   %s\n", file))
+		}
+	}
+
+	phpContent.WriteString(`//
+// TODO: Implement actual PSR-4, PSR-0, classmap, and files autoloading
+echo "phpResolver autoloader loaded (MVP - configuration detected but not implemented)\n";
 `)
 
+	data := []byte(phpContent.String())
 	return os.WriteFile(autoloadPath, data, 0o644)
 }

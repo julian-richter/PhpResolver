@@ -1,6 +1,7 @@
 package pkgmgr
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -8,7 +9,7 @@ import (
 	"github.com/julian-richter/PhpResolver/internal/config"
 )
 
-func RunDumpAutoload(_ *log.Logger, _ config.Config) error {
+func RunDumpAutoload(ctx context.Context, logger *log.Logger, cfg config.Config) error {
 	composerPath, err := FindComposerJSON(".")
 	if err != nil {
 		return fmt.Errorf("find composer.json: %w", err)
@@ -20,9 +21,11 @@ func RunDumpAutoload(_ *log.Logger, _ config.Config) error {
 	}
 
 	vendorDir := filepath.Join(filepath.Dir(composerPath), "vendor")
-	if err := GenerateAutoloader(composer.Autoload, vendorDir, nil); err != nil {
+	logger.Info("Generating autoloader", "vendor_dir", vendorDir)
+	if err := GenerateAutoloader(composer.Autoload, vendorDir, logger); err != nil {
 		return fmt.Errorf("generate autoloader: %w", err)
 	}
 
+	logger.Info("Autoloader generated successfully")
 	return nil
 }

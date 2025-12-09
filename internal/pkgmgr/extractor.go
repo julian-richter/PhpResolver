@@ -2,6 +2,7 @@ package pkgmgr
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,9 +14,15 @@ import (
 
 // ExtractPackages extracts downloaded zip files to vendor directory
 // following Composer's vendor/vendor-name/package-name structure
-func ExtractPackages(packages []Package, cacheDir, vendorDir string, logger *log.Logger) error {
+func ExtractPackages(ctx context.Context, packages []Package, cacheDir, vendorDir string, logger *log.Logger) error {
 	for _, pkg := range packages {
-		if err := extractPackage(pkg, cacheDir, vendorDir, logger); err != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if err := extractPackage(ctx, pkg, cacheDir, vendorDir, logger); err != nil {
 			logger.Error("Failed to extract package", "package", pkg.Name, "error", err)
 			return fmt.Errorf("extract %s: %w", pkg.Name, err)
 		}
@@ -24,7 +31,7 @@ func ExtractPackages(packages []Package, cacheDir, vendorDir string, logger *log
 	return nil
 }
 
-func extractPackage(pkg Package, cacheDir, vendorDir string, logger *log.Logger) error {
+func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string, logger *log.Logger) error {
 	// Build cache path: ~/.phpResolver/cache/vendor/package/version/vendor-package.zip
 	cachePath := filepath.Join(cacheDir, pkg.Name, pkg.Version, fmt.Sprintf("%s.zip", pkg.Name))
 
@@ -36,9 +43,21 @@ func extractPackage(pkg Package, cacheDir, vendorDir string, logger *log.Logger)
 	// Build vendor path: vendor/vendor-name/package-name/
 	vendorPath := filepath.Join(vendorDir, pkg.Name)
 
-	// Create vendor directory
-	if err := os.MkdirAll(vendorPath, 0o755); err != nil {
-		return fmt.Errorf("create vendor dir: %w", err)
+	// Create temporary directory for extraction
+	tempDir, err := os.MkdirTemp(filepath.Dir(vendorPath), filepath.Base(vendorPath)+".tmp")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() {
+		// Clean up temp directory on any error
+		if tempDir != "" {
+			os.RemoveAll(tempDir)
+		}
+	}()
+
+	// Remove any pre-existing vendor directory to avoid conflicts
+	if err := os.RemoveAll(vendorPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove existing vendor dir: %w", err)
 	}
 
 	// Open zip file
@@ -51,20 +70,27 @@ func extractPackage(pkg Package, cacheDir, vendorDir string, logger *log.Logger)
 	// Extract files
 	// Composer zip files typically have a root directory with the package name
 	// We need to strip that root directory when extracting
-	var rootDir string
-	if len(zipReader.File) > 0 {
-		// Detect root directory from first file
-		firstPath := zipReader.File[0].Name
-		if idx := strings.Index(firstPath, "/"); idx != -1 {
-			rootDir = firstPath[:idx+1]
-		}
-	}
+	rootDir := computeCommonPrefix(zipReader.File)
 
 	for _, file := range zipReader.File {
-		if err := extractZipFile(file, vendorPath, rootDir, logger); err != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if err := extractZipFile(file, tempDir, rootDir, logger); err != nil {
 			return fmt.Errorf("extract file %s: %w", file.Name, err)
 		}
 	}
+
+	// Atomically move temp directory to final location
+	if err := os.Rename(tempDir, vendorPath); err != nil {
+		return fmt.Errorf("move temp dir to vendor: %w", err)
+	}
+
+	// Extraction succeeded, don't clean up temp directory
+	tempDir = ""
 
 	logger.Info("Extracted package", "package", pkg.Name, "version", pkg.Version, "to", vendorPath)
 	return nil
@@ -118,4 +144,62 @@ func extractZipFile(file *zip.File, destDir, stripPrefix string, logger *log.Log
 	}
 
 	return nil
+}
+
+// computeCommonPrefix finds the common directory prefix across all zip entries
+func computeCommonPrefix(files []*zip.File) string {
+	if len(files) == 0 {
+		return ""
+	}
+
+	var paths []string
+	for _, file := range files {
+		if file.Name != "" {
+			paths = append(paths, file.Name)
+		}
+	}
+
+	if len(paths) == 0 {
+		return ""
+	}
+
+	// Split all paths into components
+	var pathComponents [][]string
+	for _, path := range paths {
+		components := strings.Split(strings.TrimSuffix(path, "/"), "/")
+		pathComponents = append(pathComponents, components)
+	}
+
+	// Find common prefix components
+	minLen := len(pathComponents[0])
+	for _, components := range pathComponents {
+		if len(components) < minLen {
+			minLen = len(components)
+		}
+	}
+
+	var commonComponents []string
+	for i := 0; i < minLen; i++ {
+		component := pathComponents[0][i]
+		isCommon := true
+
+		for _, components := range pathComponents[1:] {
+			if components[i] != component {
+				isCommon = false
+				break
+			}
+		}
+
+		if !isCommon {
+			break
+		}
+		commonComponents = append(commonComponents, component)
+	}
+
+	// Join components and add trailing slash if we have a common prefix
+	if len(commonComponents) > 0 {
+		return strings.Join(commonComponents, "/") + "/"
+	}
+
+	return ""
 }

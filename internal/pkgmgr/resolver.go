@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -46,12 +48,17 @@ func ResolvePackagesWithRepos(require map[string]string, repositories []Reposito
 	}
 	logger.Info("Package resolution complete", "resolved", len(packages), "failed", len(errors))
 
+	// Return error if any packages failed to resolve
+	if len(errors) > 0 {
+		return packages, fmt.Errorf("failed to resolve %d package(s): %s", len(errors), strings.Join(errors, "; "))
+	}
+
 	return packages, nil
 }
 
 func resolvePackage(name, constraint string, repositories []Repository, logger *log.Logger) (Package, error) {
 	// Check if this is an asset package (npm-asset/ or bower-asset/)
-	isAsset := npmAssetRE.MatchString(name) || bowerAssetRE.MatchString(name)
+	isAsset := isAssetPackage(name)
 
 	if isAsset {
 		logger.Debug("Detected asset package", "package", name)
@@ -116,8 +123,21 @@ func queryComposerRepository(baseURL, name, constraint string, logger *log.Logge
 		return Package{}, fmt.Errorf("decode repository response for %s: %w", name, err)
 	}
 
-	// MVP: Pick first stable version
-	for version, vdata := range data.Package.Versions {
+	// Collect and sort versions deterministically (latest first using version comparison)
+	var versions []string
+	for version := range data.Package.Versions {
+		versions = append(versions, version)
+	}
+
+	// Sort versions using version-aware comparison (reverse order for latest first)
+	sort.Slice(versions, func(i, j int) bool {
+		vi, vj := versions[i], versions[j]
+		return compareVersions(vi, vj) > 0 // Reverse order: higher versions first
+	})
+
+	// Iterate through sorted versions and pick the first one with HTTPS dist URL
+	for _, version := range versions {
+		vdata := data.Package.Versions[version]
 		if vdata.Dist.URL != "" && strings.HasPrefix(vdata.Dist.URL, "https://") {
 			logger.Debug("Resolved package", "package", name, "version", version, "repo", baseURL)
 			return Package{
@@ -134,6 +154,65 @@ func queryComposerRepository(baseURL, name, constraint string, logger *log.Logge
 func isPlatformRequirement(name string) bool {
 	return phpExtRE.MatchString(name) || name == "php"
 }
+
 func isAssetPackage(name string) bool {
 	return npmAssetRE.MatchString(name) || bowerAssetRE.MatchString(name)
+}
+
+// compareVersions compares two version strings and returns:
+// -1 if v1 < v2
+//
+//	0 if v1 == v2
+//	1 if v1 > v2
+func compareVersions(v1, v2 string) int {
+	// Remove 'v' prefix if present
+	v1 = strings.TrimPrefix(v1, "v")
+	v2 = strings.TrimPrefix(v2, "v")
+
+	// Split versions into parts
+	parts1 := strings.Split(v1, ".")
+	parts2 := strings.Split(v2, ".")
+
+	// Compare each part numerically
+	minLen := len(parts1)
+	if len(parts2) < minLen {
+		minLen = len(parts2)
+	}
+
+	for i := 0; i < minLen; i++ {
+		// Extract numeric part (ignore pre-release suffixes like -alpha, -beta)
+		num1Str := strings.Split(parts1[i], "-")[0]
+		num2Str := strings.Split(parts2[i], "-")[0]
+
+		num1, err1 := strconv.Atoi(num1Str)
+		num2, err2 := strconv.Atoi(num2Str)
+
+		// If both are numeric, compare numerically
+		if err1 == nil && err2 == nil {
+			if num1 != num2 {
+				if num1 > num2 {
+					return 1
+				}
+				return -1
+			}
+		} else {
+			// Fallback to string comparison for non-numeric parts
+			if num1Str != num2Str {
+				if num1Str > num2Str {
+					return 1
+				}
+				return -1
+			}
+		}
+	}
+
+	// If all compared parts are equal, longer version is considered greater
+	if len(parts1) != len(parts2) {
+		if len(parts1) > len(parts2) {
+			return 1
+		}
+		return -1
+	}
+
+	return 0
 }

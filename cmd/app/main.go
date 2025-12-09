@@ -61,7 +61,7 @@ func runCLI(ctx context.Context, args []string, logger *log.Logger, cfg config.C
 	case "update":
 		return pkgmgr.RunUpdate(ctx, logger, cfg)
 	case "dump-autoload":
-		return pkgmgr.RunDumpAutoload(logger, cfg)
+		return pkgmgr.RunDumpAutoload(ctx, logger, cfg)
 	case "help", "-h", "--help":
 		printUsage(logger)
 		return nil
@@ -71,6 +71,8 @@ func runCLI(ctx context.Context, args []string, logger *log.Logger, cfg config.C
 	}
 }
 
+// printUsage prints help text to stdout intentionally bypassing the logger
+// to avoid timestamp/JSON formatting that would make the output less readable
 func printUsage(logger *log.Logger) {
 	fmt.Println(`phpResolver - Drop-in Composer replacement
 
