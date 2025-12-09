@@ -61,11 +61,6 @@ func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string
 		}
 	}()
 
-	// Remove any pre-existing vendor directory to avoid conflicts
-	if err := os.RemoveAll(vendorPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove existing vendor dir: %w", err)
-	}
-
 	// Open zip file
 	zipReader, err := zip.OpenReader(cachePath)
 	if err != nil {
@@ -90,12 +85,43 @@ func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string
 		}
 	}
 
-	// Atomically move temp directory to final location
-	if err := os.Rename(tempDir, vendorPath); err != nil {
-		return fmt.Errorf("move temp dir to vendor: %w", err)
+	// Perform atomic directory swap to avoid data loss
+	backupPath := vendorPath + ".backup"
+
+	// Close zip reader before directory operations
+	zipReader.Close()
+
+	// Create backup of existing vendor directory (if it exists)
+	if _, err := os.Stat(vendorPath); err == nil {
+		// Vendor directory exists, create backup
+		if err := os.Rename(vendorPath, backupPath); err != nil {
+			return fmt.Errorf("create backup of existing vendor dir: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check existing vendor dir: %w", err)
 	}
 
-	// Extraction succeeded, don't clean up temp directory
+	// Attempt to move temp directory to final location
+	if err := os.Rename(tempDir, vendorPath); err != nil {
+		// Rename failed, attempt to restore from backup
+		if _, err := os.Stat(backupPath); err == nil {
+			if restoreErr := os.Rename(backupPath, vendorPath); restoreErr != nil {
+				logger.Error("Failed to restore from backup after swap failure",
+					"package", pkg.Name, "backup_path", backupPath, "error", restoreErr)
+			}
+		}
+		return fmt.Errorf("move temp dir to vendor (attempted restore from backup): %w", err)
+	}
+
+	// Swap successful, clean up backup if it exists
+	if _, err := os.Stat(backupPath); err == nil {
+		if err := os.RemoveAll(backupPath); err != nil {
+			logger.Warn("Failed to clean up backup directory", "backup_path", backupPath, "error", err)
+			// Don't return error for cleanup failure - the main operation succeeded
+		}
+	}
+
+	// Extraction and swap succeeded, don't clean up temp directory (it's now vendorPath)
 	tempDir = ""
 
 	logger.Info("Extracted package", "package", pkg.Name, "version", pkg.Version, "to", vendorPath)
