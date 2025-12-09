@@ -9,6 +9,8 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+const logPrefix = "PHP Resolver "
+
 // NewLogger creates a configured charmbracelet/log.Logger from the config.
 // Validates config inputs.
 // Returns LoggerHandle with Closer to prevent file descriptor leaks.
@@ -88,7 +90,7 @@ func NewLogger(cfg Config) (*LoggerHandle, error) {
 		ReportTimestamp: true,
 		ReportCaller:    cfg.Log.ShowSource,
 		Formatter:       formatter,
-		Prefix:          "phpResolver",
+		Prefix:          logPrefix,
 	})
 
 	// Return handle with appropriate closer (no-op if no file)
