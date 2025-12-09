@@ -15,6 +15,9 @@ import (
 // ExtractPackages extracts downloaded zip files to vendor directory
 // following Composer's vendor/vendor-name/package-name structure
 func ExtractPackages(ctx context.Context, packages []Package, cacheDir, vendorDir string, logger *log.Logger) error {
+	var errors []string
+	var failedPackages []string
+
 	for _, pkg := range packages {
 		select {
 		case <-ctx.Done():
@@ -24,21 +27,34 @@ func ExtractPackages(ctx context.Context, packages []Package, cacheDir, vendorDi
 
 		if err := extractPackage(ctx, pkg, cacheDir, vendorDir, logger); err != nil {
 			logger.Error("Failed to extract package", "package", pkg.Name, "error", err)
-			return fmt.Errorf("extract %s: %w", pkg.Name, err)
+			errors = append(errors, fmt.Sprintf("%s: %v", pkg.Name, err))
+			failedPackages = append(failedPackages, pkg.Name)
+			continue // Continue with remaining packages
 		}
 	}
-	logger.Info("All packages extracted", "count", len(packages))
+
+	// Log summary of results
+	successCount := len(packages) - len(failedPackages)
+	if successCount > 0 {
+		logger.Info("Successfully extracted packages", "success_count", successCount)
+	}
+	if len(failedPackages) > 0 {
+		logger.Warn("Some packages failed to extract", "failed_count", len(failedPackages), "failed_packages", failedPackages)
+	} else {
+		logger.Info("All packages extracted", "count", len(packages))
+	}
+
+	// Return combined error if any packages failed
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to extract %d package(s): %s", len(errors), strings.Join(errors, "; "))
+	}
+
 	return nil
 }
 
 func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string, logger *log.Logger) error {
 	// Build cache path: ~/.phpResolver/cache/vendor/package/version/vendor-package.zip
 	cachePath := filepath.Join(cacheDir, pkg.Name, pkg.Version, fmt.Sprintf("%s.zip", pkg.Name))
-
-	// Check if zip file exists
-	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		return fmt.Errorf("zip file not found: %s", cachePath)
-	}
 
 	// Build vendor path: vendor/vendor-name/package-name/
 	vendorPath := filepath.Join(vendorDir, pkg.Name)
@@ -64,7 +80,7 @@ func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string
 	// Open zip file
 	zipReader, err := zip.OpenReader(cachePath)
 	if err != nil {
-		return fmt.Errorf("open zip: %w", err)
+		return fmt.Errorf("open zip file %s: %w", cachePath, err)
 	}
 	defer zipReader.Close()
 
@@ -87,9 +103,6 @@ func extractPackage(ctx context.Context, pkg Package, cacheDir, vendorDir string
 
 	// Perform atomic directory swap to avoid data loss
 	backupPath := vendorPath + ".backup"
-
-	// Close zip reader before directory operations
-	zipReader.Close()
 
 	// Create backup of existing vendor directory (if it exists)
 	if _, err := os.Stat(vendorPath); err == nil {
@@ -184,51 +197,52 @@ func computeCommonPrefix(files []*zip.File) string {
 		return ""
 	}
 
-	var paths []string
+	// Find first non-empty file name
+	var firstComponents []string
 	for _, file := range files {
 		if file.Name != "" {
-			paths = append(paths, file.Name)
+			firstComponents = strings.Split(strings.TrimSuffix(file.Name, "/"), "/")
+			break
 		}
 	}
 
-	if len(paths) == 0 {
+	if len(firstComponents) == 0 {
 		return ""
 	}
 
-	// Split all paths into components
-	var pathComponents [][]string
-	for _, path := range paths {
-		components := strings.Split(strings.TrimSuffix(path, "/"), "/")
-		pathComponents = append(pathComponents, components)
-	}
+	// Initialize commonComponents from first file
+	commonComponents := make([]string, len(firstComponents))
+	copy(commonComponents, firstComponents)
 
-	// Find common prefix components
-	minLen := len(pathComponents[0])
-	for _, components := range pathComponents {
+	// For each subsequent file, truncate commonComponents in-place
+	for _, file := range files {
+		if file.Name == "" {
+			continue
+		}
+
+		components := strings.Split(strings.TrimSuffix(file.Name, "/"), "/")
+
+		// Find the common prefix length
+		minLen := len(commonComponents)
 		if len(components) < minLen {
 			minLen = len(components)
 		}
-	}
 
-	var commonComponents []string
-	for i := 0; i < minLen; i++ {
-		component := pathComponents[0][i]
-		isCommon := true
-
-		for _, components := range pathComponents[1:] {
-			if components[i] != component {
-				isCommon = false
+		// Truncate at first difference
+		for i := 0; i < minLen; i++ {
+			if commonComponents[i] != components[i] {
+				commonComponents = commonComponents[:i]
 				break
 			}
 		}
 
-		if !isCommon {
+		// If we found a difference at position 0, no common prefix
+		if len(commonComponents) == 0 {
 			break
 		}
-		commonComponents = append(commonComponents, component)
 	}
 
-	// Join components and add trailing slash if we have a common prefix
+	// Return joined components with trailing slash if we have a common prefix
 	if len(commonComponents) > 0 {
 		return strings.Join(commonComponents, "/") + "/"
 	}
