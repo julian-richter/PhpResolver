@@ -8,19 +8,24 @@ import (
 	"github.com/julian-richter/PhpResolver/internal/config"
 )
 
+func createFallbackLogger() *log.Logger {
+	return log.NewWithOptions(os.Stderr, log.Options{
+		Level: log.ErrorLevel,
+	})
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		// Fallback logger for config errors
-		fallback := log.NewWithOptions(os.Stderr, log.Options{
-			Level: log.ErrorLevel,
-		})
+		fallback := createFallbackLogger()
 		fallback.Fatal("failed to load config", "err", err)
 	}
 
 	handle, err := config.NewLogger(cfg)
 	if err != nil {
-		log.New(os.Stderr).Fatal("failed to initialize logger", "err", err)
+		fallback := createFallbackLogger()
+		fallback.Fatal("failed to initialize logger", "err", err)
 	}
 	defer func() {
 		if handle.Closer != nil {
@@ -39,6 +44,7 @@ func main() {
 	}
 }
 
-func run(logger *log.Logger, _ config.Config) error { // _ ignores unused cfg param
+func run(logger *log.Logger, _ config.Config) error {
+	logger.Infof("starting application")
 	return nil
 }

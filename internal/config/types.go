@@ -45,16 +45,17 @@ var (
 	ErrInvalidLogFormat = errors.New("invalid log format")
 )
 
-func ValidLogLevels() []string {
-	return []string{string(LogLevelDebug), string(LogLevelInfo),
-		string(LogLevelWarn), string(LogLevelError)}
+func ValidLogLevels() []LogLevel {
+	return []LogLevel{LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError}
 }
 
-func IsValidLogLevel(level string) bool {
-	return level == string(LogLevelDebug) ||
-		level == string(LogLevelInfo) ||
-		level == string(LogLevelWarn) ||
-		level == string(LogLevelError)
+func IsValidLogLevel(level LogLevel) bool {
+	switch level {
+	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
+		return true
+	default:
+		return false
+	}
 }
 
 func ValidLogFormats() []LogFormat {

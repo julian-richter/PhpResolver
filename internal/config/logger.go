@@ -14,7 +14,7 @@ import (
 // Returns LoggerHandle with Closer to prevent file descriptor leaks.
 func NewLogger(cfg Config) (*LoggerHandle, error) {
 	// Validate inputs using shared helpers (single source of truth)
-	if !IsValidLogLevel(string(cfg.Log.Level)) {
+	if !IsValidLogLevel(cfg.Log.Level) {
 		return nil, fmt.Errorf("invalid log.level %q (must be one of: %v): %w",
 			cfg.Log.Level, ValidLogLevels(), ErrInvalidLogLevel)
 	}
